@@ -1,0 +1,12 @@
+{
+  "name": "image-processor",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "fastify": "^5.0.0",
+    "sharp": "^0.34.3"
+  }
+}
