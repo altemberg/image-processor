@@ -2,6 +2,16 @@ const Fastify = require("fastify");
 const sharp = require("sharp");
 const axios = require("axios");
 
+const fs = require("fs/promises");
+const os = require("os");
+const path = require("path");
+const crypto = require("crypto");
+
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+
+const exec = promisify(execFile);
+
 const app = Fastify({
   logger: true,
 });
@@ -14,6 +24,9 @@ app.get("/", async () => {
 });
 
 app.post("/crop", async (request, reply) => {
+  let originalFile;
+  let compressedFile;
+
   try {
     let { imageUrl } = request.body;
 
@@ -33,10 +46,14 @@ app.post("/crop", async (request, reply) => {
       responseType: "arraybuffer",
     });
 
-    const output = await sharp(response.data)
+    const id = crypto.randomUUID();
+
+    originalFile = path.join(os.tmpdir(), `${id}.png`);
+    compressedFile = path.join(os.tmpdir(), `${id}-compressed.png`);
+
+    await sharp(response.data)
       .trim()
 
-      // limita o tamanho máximo
       .resize({
         width: 1024,
         height: 1024,
@@ -44,7 +61,6 @@ app.post("/crop", async (request, reply) => {
         withoutEnlargement: true,
       })
 
-      // adiciona margem
       .extend({
         top: 60,
         bottom: 60,
@@ -58,18 +74,37 @@ app.post("/crop", async (request, reply) => {
         },
       })
 
-      // remove metadata EXIF
       .withMetadata(false)
 
-      // png otimizado
       .png({
         compressionLevel: 9,
-        effort: 10,
-        palette: true,
-        quality: 85,
+        palette: false,
       })
 
-      .toBuffer();
+      .toFile(originalFile);
+
+    let output;
+
+    try {
+      await exec("pngquant", [
+        "--quality=80-100",
+        "--speed=1",
+        "--force",
+        "--output",
+        compressedFile,
+        originalFile,
+      ]);
+
+      output = await fs.readFile(compressedFile);
+
+      request.log.info("Imagem comprimida com pngquant");
+    } catch (err) {
+      request.log.warn(
+        "pngquant falhou. Retornando imagem gerada pelo Sharp."
+      );
+
+      output = await fs.readFile(originalFile);
+    }
 
     reply
       .header("Content-Type", "image/png")
@@ -81,6 +116,11 @@ app.post("/crop", async (request, reply) => {
     reply.status(500).send({
       error: err.message,
     });
+  } finally {
+    await Promise.allSettled([
+      originalFile ? fs.unlink(originalFile) : Promise.resolve(),
+      compressedFile ? fs.unlink(compressedFile) : Promise.resolve(),
+    ]);
   }
 });
 
