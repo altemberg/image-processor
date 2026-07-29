@@ -15,12 +15,18 @@ app.get("/", async () => {
 
 app.post("/crop", async (request, reply) => {
   try {
-    const { imageUrl } = request.body;
+    let { imageUrl } = request.body;
 
     if (!imageUrl) {
       return reply.status(400).send({
         error: "imageUrl é obrigatório",
       });
+    }
+
+    imageUrl = imageUrl.trim();
+
+    if (imageUrl.startsWith("=")) {
+      imageUrl = imageUrl.substring(1);
     }
 
     const response = await axios.get(imageUrl, {
@@ -29,6 +35,16 @@ app.post("/crop", async (request, reply) => {
 
     const output = await sharp(response.data)
       .trim()
+
+      // limita o tamanho máximo
+      .resize({
+        width: 1024,
+        height: 1024,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+
+      // adiciona margem
       .extend({
         top: 60,
         bottom: 60,
@@ -41,7 +57,18 @@ app.post("/crop", async (request, reply) => {
           alpha: 0,
         },
       })
-      .png()
+
+      // remove metadata EXIF
+      .withMetadata(false)
+
+      // png otimizado
+      .png({
+        compressionLevel: 9,
+        effort: 10,
+        palette: true,
+        quality: 85,
+      })
+
       .toBuffer();
 
     reply
